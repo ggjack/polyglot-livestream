@@ -1,0 +1,12 @@
+{
+  "name": "polyglot-livestream",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "echo 'Use workspace scripts: npm run dev -w apps/web and npm run dev -w apps/api'",
+    "build": "echo 'Use workspace scripts: npm run build -w apps/web'"
+  }
+}
