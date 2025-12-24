@@ -125,6 +125,13 @@ button.ghost {
   color: var(--ink);
 }
 
+.mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
 .status-badge {
   padding: 6px 12px;
   border-radius: 999px;
@@ -158,6 +165,12 @@ button.ghost {
   margin-top: 16px;
 }
 
+.source-row {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
 label {
   display: grid;
   gap: 8px;
@@ -175,6 +188,16 @@ select {
   padding: 12px 14px;
   font-size: 0.95rem;
   font-weight: 500;
+  background: #f9fafc;
+  color: var(--ink);
+}
+
+input[type="file"],
+input[type="text"] {
+  border: 1px solid rgba(20, 22, 31, 0.1);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 0.95rem;
   background: #f9fafc;
   color: var(--ink);
 }

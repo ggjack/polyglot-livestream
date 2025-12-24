@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type PreviewStatus = "idle" | "loading" | "live" | "error";
+type SourceMode = "camera" | "file" | "screen" | "url";
 
 export default function App() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [videoDeviceId, setVideoDeviceId] = useState("");
   const [audioDeviceId, setAudioDeviceId] = useState("");
   const [status, setStatus] = useState<PreviewStatus>("idle");
+  const [mode, setMode] = useState<SourceMode>("camera");
+  const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -48,41 +52,93 @@ export default function App() {
   };
 
   const startPreview = async () => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setError("Media capture is not supported in this browser.");
-      setStatus("error");
-      return;
-    }
-
     try {
       setError(null);
       setStatus("loading");
       stopTracks();
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: videoDeviceId
-          ? { deviceId: { exact: videoDeviceId } }
-          : true,
-        audio: audioDeviceId
-          ? { deviceId: { exact: audioDeviceId } }
-          : true
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+
+      if (mode === "camera") {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error("Media capture is not supported in this browser.");
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: videoDeviceId
+            ? { deviceId: { exact: videoDeviceId } }
+            : true,
+          audio: audioDeviceId
+            ? { deviceId: { exact: audioDeviceId } }
+            : true
+        });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+        if (audioRef.current) {
+          audioRef.current.srcObject = stream;
+        }
+        await refreshDevices();
       }
-      if (audioRef.current) {
-        audioRef.current.srcObject = stream;
+
+      if (mode === "screen") {
+        if (!navigator.mediaDevices?.getDisplayMedia) {
+          throw new Error("Screen capture is not supported in this browser.");
+        }
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true
+        });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+        if (audioRef.current) {
+          audioRef.current.srcObject = stream;
+        }
       }
+
+      if (mode === "file") {
+        if (!fileUrl) {
+          throw new Error("Select a local video file to preview.");
+        }
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+          videoRef.current.src = fileUrl;
+          videoRef.current.muted = true;
+          await videoRef.current.play();
+        }
+        if (audioRef.current) {
+          audioRef.current.srcObject = null;
+          audioRef.current.src = fileUrl;
+        }
+      }
+
+      if (mode === "url") {
+        if (!streamUrl.trim()) {
+          throw new Error("Enter a URL or start a server-side ingest.");
+        }
+      }
+
       setStatus("live");
-      await refreshDevices();
     } catch (err) {
       setStatus("error");
-      setError("Camera or microphone access was denied.");
+      const message =
+        err instanceof Error ? err.message : "Unable to start preview.";
+      setError(message);
     }
   };
 
   const stopPreview = () => {
     stopTracks();
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.removeAttribute("src");
+      videoRef.current.load();
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
+      audioRef.current.load();
+    }
     setStatus("idle");
   };
 
@@ -105,10 +161,31 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (status === "live") {
+    if (status === "live" && mode === "camera") {
       startPreview();
     }
-  }, [videoDeviceId, audioDeviceId]);
+  }, [videoDeviceId, audioDeviceId, mode]);
+
+  useEffect(() => {
+    if (status === "live" && mode === "file") {
+      startPreview();
+    }
+  }, [fileUrl, mode]);
+
+  useEffect(() => {
+    setError(null);
+    stopPreview();
+  }, [mode]);
+
+  useEffect(() => {
+    if (!fileUrl) {
+      return;
+    }
+
+    return () => {
+      URL.revokeObjectURL(fileUrl);
+    };
+  }, [fileUrl]);
 
   return (
     <div className="app">
@@ -145,12 +222,30 @@ export default function App() {
               {status === "error" && "Error"}
             </span>
           </div>
+          <div className="mode-row">
+            {(["camera", "file", "screen", "url"] as SourceMode[]).map(
+              (option) => (
+                <button
+                  key={option}
+                  className={mode === option ? "primary" : "ghost"}
+                  type="button"
+                  onClick={() => setMode(option)}
+                >
+                  {option === "camera" && "Camera + Mic"}
+                  {option === "file" && "Local File"}
+                  {option === "screen" && "Screen Share"}
+                  {option === "url" && "URL Ingest"}
+                </button>
+              )
+            )}
+          </div>
           <div className="device-row">
             <label>
               Video source
               <select
                 value={videoDeviceId}
                 onChange={(event) => setVideoDeviceId(event.target.value)}
+                disabled={mode !== "camera"}
               >
                 {videoInputs.length === 0 && (
                   <option value="">No cameras detected</option>
@@ -167,6 +262,7 @@ export default function App() {
               <select
                 value={audioDeviceId}
                 onChange={(event) => setAudioDeviceId(event.target.value)}
+                disabled={mode !== "camera"}
               >
                 {audioInputs.length === 0 && (
                   <option value="">No microphones detected</option>
@@ -179,6 +275,49 @@ export default function App() {
               </select>
             </label>
           </div>
+          {mode === "file" && (
+            <div className="source-row">
+              <label>
+                Local video file
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) {
+                      setFileUrl(URL.createObjectURL(file));
+                      setStatus("idle");
+                    }
+                  }}
+                />
+              </label>
+              {fileUrl && (
+                <p className="hint">Loaded file preview. Click Start preview.</p>
+              )}
+            </div>
+          )}
+          {mode === "screen" && (
+            <p className="hint">
+              Screen share will ask which window or tab to capture.
+            </p>
+          )}
+          {mode === "url" && (
+            <div className="source-row">
+              <label>
+                Stream URL
+                <input
+                  type="text"
+                  placeholder="https://..."
+                  value={streamUrl}
+                  onChange={(event) => setStreamUrl(event.target.value)}
+                />
+              </label>
+              <p className="hint">
+                Direct URL playback needs server-side ingest for YouTube or live
+                feeds.
+              </p>
+            </div>
+          )}
           {error && <p className="error">{error}</p>}
         </div>
 
@@ -188,9 +327,22 @@ export default function App() {
             <div className="media-frame video">
               <video ref={videoRef} autoPlay playsInline muted />
             </div>
-            <p className="hint">
-              The camera preview is muted locally to avoid feedback.
-            </p>
+            {mode === "camera" && (
+              <p className="hint">
+                The camera preview is muted locally to avoid feedback.
+              </p>
+            )}
+            {mode === "file" && (
+              <p className="hint">Local files use the audio monitor below.</p>
+            )}
+            {mode === "screen" && (
+              <p className="hint">Screen share audio may be limited by OS.</p>
+            )}
+            {mode === "url" && (
+              <p className="hint">
+                URL ingest requires a server-side relay for live streams.
+              </p>
+            )}
           </div>
           <div className="media-tile">
             <h3>Audio monitor</h3>
